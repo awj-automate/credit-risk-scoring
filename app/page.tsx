@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
   Building2,
-  ChevronRight,
   Cog,
   FileText,
   RefreshCw,
@@ -51,10 +50,36 @@ function scoreColor(score: number): string {
   return "text-rose-600";
 }
 
+function formatNow(): string {
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
 export default function DashboardPage() {
   const [view, setView] = useState<View>("portfolio");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string>(allCustomers[0].id);
+  const [refreshedAt, setRefreshedAt] = useState<string>(portfolioStats.refreshedAt);
+  const [refreshState, setRefreshState] = useState<"idle" | "refreshing" | "done">("idle");
+  const refreshTimer = useRef<number | null>(null);
+
+  const handleRefresh = () => {
+    if (refreshState === "refreshing") return;
+    if (refreshTimer.current !== null) {
+      window.clearTimeout(refreshTimer.current);
+      refreshTimer.current = null;
+    }
+    setRefreshState("refreshing");
+    refreshTimer.current = window.setTimeout(() => {
+      setRefreshedAt(formatNow());
+      setRefreshState("done");
+      refreshTimer.current = window.setTimeout(() => {
+        setRefreshState("idle");
+        refreshTimer.current = null;
+      }, 2000);
+    }, 900);
+  };
 
   return (
     <div className="flex h-screen w-full bg-slate-50 text-slate-900">
@@ -89,8 +114,10 @@ export default function DashboardPage() {
         </nav>
         <div className="border-t border-slate-200 px-5 py-4">
           <div className="text-[10px] uppercase tracking-wider text-slate-500">Refreshed</div>
-          <div className="mt-0.5 text-[13px] font-semibold text-slate-900">{portfolioStats.refreshedAt}</div>
-          <div className="mt-1 text-[11px] text-slate-500">Weekly snapshot</div>
+          <div className="mt-0.5 text-[13px] font-semibold text-slate-900 tabular-nums">{refreshedAt}</div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            {refreshState === "refreshing" ? "Refreshing now…" : refreshState === "done" ? "Just updated" : "Weekly snapshot"}
+          </div>
         </div>
       </aside>
 
@@ -112,10 +139,19 @@ export default function DashboardPage() {
           </div>
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-lg bg-navy-900 px-3 py-2 text-[12px] font-semibold text-white transition hover:bg-navy-800"
+            onClick={handleRefresh}
+            disabled={refreshState === "refreshing"}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[12px] font-semibold text-white transition",
+              refreshState === "refreshing"
+                ? "bg-navy-700 cursor-wait"
+                : refreshState === "done"
+                  ? "bg-emerald-600 hover:bg-emerald-700"
+                  : "bg-navy-900 hover:bg-navy-800",
+            )}
           >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Refresh
+            <RefreshCw className={cn("h-3.5 w-3.5", refreshState === "refreshing" && "animate-spin")} />
+            {refreshState === "refreshing" ? "Refreshing…" : refreshState === "done" ? "Refreshed" : "Refresh"}
           </button>
         </header>
 
@@ -596,6 +632,10 @@ function SettingsView() {
   const [redCutoff, setRedCutoff] = useState(40);
   const [greenCutoff, setGreenCutoff] = useState(70);
   const [refreshDay, setRefreshDay] = useState("Monday");
+  const [weights, setWeights] = useState<Record<string, number>>(() =>
+    Object.fromEntries(categoryDefs.map((c) => [c.key, Math.round(c.weight * 100)])),
+  );
+  const weightSum = Object.values(weights).reduce((s, v) => s + v, 0);
 
   return (
     <div className="flex-1 overflow-auto">
@@ -640,13 +680,26 @@ function SettingsView() {
                   <div className="text-[13.5px] font-semibold text-slate-900">{cat.label}</div>
                   <div className="text-[12px] text-slate-500">{cat.hint}</div>
                 </div>
-                <div className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1 font-mono text-[12px] text-slate-800">
-                  {(cat.weight * 100).toFixed(0)}%
-                  <ChevronRight className="h-3 w-3 text-slate-400" />
+                <div className="flex flex-none items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={weights[cat.key]}
+                    onChange={(e) =>
+                      setWeights((p) => ({ ...p, [cat.key]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) }))
+                    }
+                    className="w-16 rounded-md border border-slate-200 bg-white px-2 py-1 text-right font-mono text-[13px] tabular-nums text-slate-900 outline-none focus:border-navy-500"
+                  />
+                  <span className="text-[12px] text-slate-500">%</span>
                 </div>
               </li>
             ))}
           </ul>
+          <div className={cn("border-t border-slate-100 px-5 py-3 text-[12px]", weightSum === 100 ? "text-emerald-700" : "text-amber-700")}>
+            Total: <span className="font-semibold tabular-nums">{weightSum}%</span>
+            {weightSum === 100 ? " ✓" : ` — should equal 100% (off by ${weightSum - 100 > 0 ? "+" : ""}${weightSum - 100})`}
+          </div>
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white">
